@@ -6,51 +6,9 @@ from PIL import Image, ImageGrab
 from collections import defaultdict, Counter
 import time
 from sklearn.cluster import KMeans
+from scipy.signal import find_peaks
 import matplotlib.pyplot as plt
 
-# class ImageProcessor:
-#     """Process screenshots of the LinkedIn Queens game"""
-    
-#     @staticmethod
-#     def process_screenshot(image_path):
-#         """
-#         Process a screenshot of the LinkedIn Queens game
-#         Returns: board_size, color_regions, board_state
-#         """
-#         # This is a placeholder - in a real implementation you would:
-#         # 1. Detect the grid boundaries
-#         # 2. Identify cell colors for regions
-#         # 3. Detect X marks and queens
-        
-#         # For now, return the hardcoded values based on the screenshot
-#         board_size = 9
-        
-#         # These are approximated from the screenshot
-#         board_state = [
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0],
-#             [0, 0, 0, 0, 0, 0, 0, 0, 0]
-#         ]
-        
-#         color_regions = [
-#             [0, 0, 0, 0, 0, 0, 1, 1, 1],
-#             [0, 0, 2, 2, 2, 2, 2, 3, 1],
-#             [0, 0, 2, 4, 4, 4, 2, 3, 3],
-#             [0, 0, 2, 4, 5, 4, 2, 8, 3],
-#             [0, 0, 2, 5, 5, 4, 2, 8, 3],
-#             [0, 0, 2, 4, 4, 4, 2, 8, 8],
-#             [0, 6, 2, 2, 2, 2, 2, 7, 8],
-#             [0, 6, 2, 2, 2, 2, 2, 7, 7],
-#             [6, 6, 6, 6, 6, 7, 7, 7, 7]
-#         ]
-        
-#         return board_size, color_regions, board_state
 
 class ImageProcessor:
     """Process screenshots of the LinkedIn Queens game"""
@@ -68,112 +26,7 @@ class ImageProcessor:
         screenshot = cv2.cvtColor(screenshot, cv2.COLOR_RGB2BGR)
         return screenshot
     
-    @staticmethod
-    def detect_grid_size(image, grid_bounds):
-
-        return 10,10
-        """Detect the size of the grid (number of rows and columns)"""
-        x1, y1, x2, y2 = grid_bounds
-        grid_image = image[y1:y2, x1:x2]
-        
-        # Convert to grayscale
-        gray = cv2.cvtColor(grid_image, cv2.COLOR_BGR2GRAY)
-        
-        # Apply adaptive thresholding to highlight grid lines
-        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
-                                    cv2.THRESH_BINARY_INV, 11, 2)
-        
-        # Get image dimensions
-        height, width = thresh.shape
-        
-        # Detect horizontal lines
-        horizontal_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (width//10, 1))
-        horizontal_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, horizontal_kernel)
-        horizontal_lines = cv2.dilate(horizontal_lines, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=1)
-        
-        # Detect vertical lines
-        vertical_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (1, height//10))
-        vertical_lines = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, vertical_kernel)
-        vertical_lines = cv2.dilate(vertical_lines, cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3)), iterations=1)
-        
-        # Find horizontal line positions
-        h_projection = np.sum(horizontal_lines, axis=1)
-        h_peaks = []
-        for i in range(1, len(h_projection) - 1):
-            if h_projection[i] > h_projection[i-1] and h_projection[i] > h_projection[i+1] and h_projection[i] > width * 0.3:
-                h_peaks.append(i)
-        
-        # Find vertical line positions
-        v_projection = np.sum(vertical_lines, axis=0)
-        v_peaks = []
-        for i in range(1, len(v_projection) - 1):
-            if v_projection[i] > v_projection[i-1] and v_projection[i] > v_projection[i+1] and v_projection[i] > height * 0.3:
-                v_peaks.append(i)
-        
-        # Count rows and columns
-        rows = len(h_peaks) + 1  # Number of cells = number of lines + 1
-        cols = len(v_peaks) + 1
-        
-        # For debugging
-        debug_image = grid_image.copy()
-        for y in h_peaks:
-            cv2.line(debug_image, (0, y), (width, y), (0, 255, 0), 2)
-        for x in v_peaks:
-            cv2.line(debug_image, (x, 0), (x, height), (0, 0, 255), 2)
-        cv2.imwrite("grid_lines_detected.jpg", debug_image)
-        
-        # Use alternative method if the first method fails
-        if rows <= 1 or cols <= 1 or abs(rows - cols) > 2:  # Grid should be roughly square
-            # Use Hough Line Transform as a backup method
-            edges = cv2.Canny(gray, 50, 150, apertureSize=3)
-            lines = cv2.HoughLinesP(edges, 1, np.pi/180, threshold=100, minLineLength=min(width, height)//3, maxLineGap=20)
-            
-            if lines is not None:
-                # Separate horizontal and vertical lines
-                h_lines = []
-                v_lines = []
-                for line in lines:
-                    x1, y1, x2, y2 = line[0]
-                    if abs(x2 - x1) > abs(y2 - y1):  # Horizontal line
-                        h_lines.append((y1 + y2) // 2)
-                    else:  # Vertical line
-                        v_lines.append((x1 + x2) // 2)
-                
-                # Group similar positions (lines that are close together)
-                h_lines = sorted(h_lines)
-                v_lines = sorted(v_lines)
-                
-                def group_lines(lines, threshold=20):
-                    if not lines:
-                        return []
-                    groups = [[lines[0]]]
-                    for line in lines[1:]:
-                        if line - groups[-1][-1] > threshold:
-                            groups.append([line])
-                        else:
-                            groups[-1].append(line)
-                    return [sum(group) // len(group) for group in groups]
-                
-                h_groups = group_lines(h_lines)
-                v_groups = group_lines(v_lines)
-                
-                rows = len(h_groups) + 1
-                cols = len(v_groups) + 1
-                
-                # Debug image for the second method
-                debug_image2 = grid_image.copy()
-                for y in h_groups:
-                    cv2.line(debug_image2, (0, y), (width, y), (0, 255, 0), 2)
-                for x in v_groups:
-                    cv2.line(debug_image2, (x, 0), (x, height), (0, 0, 255), 2)
-                cv2.imwrite("grid_lines_hough.jpg", debug_image2)
-        
-        # Ensure we have a valid grid size (at least 2x2)
-        rows = max(2, rows)
-        cols = max(2, cols)
-        
-        print(f"Detected grid size: {rows}x{cols}")
-        return rows, cols
+    
     
     @staticmethod
     def detect_grid(image):
@@ -213,19 +66,190 @@ class ImageProcessor:
         x, y, w, h = cv2.boundingRect(grid_contour)
         return (x, y, x+w, y+h)
     
-    @staticmethod
-    def detect_grid_cells(image, grid_bounds):
-        """Detect individual cells within the grid with dynamic grid size"""
+    def detect_grid_size_from_boundaries(image, grid_bounds):
+        """Detect grid size by focusing on the black boundaries between cells"""
+        import numpy as np
+        import cv2
+        from scipy import signal
+        
         x1, y1, x2, y2 = grid_bounds
-        
-        # Detect grid size
-        num_rows, num_cols = ImageProcessor.detect_grid_size(image, grid_bounds)
-        
         grid_image = image[y1:y2, x1:x2]
         
+        # Convert to grayscale
+        gray = cv2.cvtColor(grid_image, cv2.COLOR_BGR2GRAY)
+        
+        # Create a copy for visualization
+        debug_image = grid_image.copy()
+        
+        # Apply threshold to isolate dark lines
+        _, binary = cv2.threshold(gray, 80, 255, cv2.THRESH_BINARY_INV)
+        
+        # Optionally dilate to make boundaries more prominent
+        kernel = np.ones((3, 3), np.uint8)
+        binary = cv2.dilate(binary, kernel, iterations=1)
+        
+        # Get image dimensions
+        height, width = binary.shape
+        
+        # Create horizontal and vertical projections
+        h_projection = np.sum(binary, axis=1)
+        v_projection = np.sum(binary, axis=0)
+        
+        # Save projections as images for debugging
+        h_proj_img = np.zeros((height, 300), dtype=np.uint8)
+        v_proj_img = np.zeros((300, width), dtype=np.uint8)
+        
+        # Scale projections to fit visualization
+        h_scale = 300 / np.max(h_projection) if np.max(h_projection) > 0 else 1
+        v_scale = 300 / np.max(v_projection) if np.max(v_projection) > 0 else 1
+        
+        for i in range(height):
+            cv2.line(h_proj_img, (0, i), (int(h_projection[i] * h_scale), i), 255, 1)
+        
+        for i in range(width):
+            cv2.line(v_proj_img, (i, 300-1), (i, 300-1-int(v_projection[i] * v_scale)), 255, 1)
+        
+        cv2.imwrite("h_projection.jpg", h_proj_img)
+        cv2.imwrite("v_projection.jpg", v_proj_img)
+        
+        # Apply adaptive thresholding to projections to find peaks
+        def find_boundaries_from_projection(projection, min_distance_percent=0.05):
+            # Convert to percentage of image dimension
+            min_distance = int(len(projection) * min_distance_percent)
+            
+            # Calculate dynamic threshold based on projection values
+            threshold = np.mean(projection) * 1.2
+            
+            # Find peaks (boundary lines)
+            peaks, _ = signal.find_peaks(projection, height=threshold, distance=min_distance)
+            
+            # If no peaks found, try a lower threshold
+            if len(peaks) < 2:
+                threshold = np.mean(projection) * 0.8
+                peaks, _ = signal.find_peaks(projection, height=threshold, distance=min_distance)
+            
+            # Debug output showing detected peaks (boundaries)
+            print(f"Detected {len(peaks)} peaks with threshold {threshold:.2f} and min_distance {min_distance}")
+            
+            return peaks
+        
+        # Find boundaries
+        h_boundaries = find_boundaries_from_projection(h_projection)
+        v_boundaries = find_boundaries_from_projection(v_projection)
+        
+        # If we still don't have enough boundaries, try another approach
+        if len(h_boundaries) < 2 or len(v_boundaries) < 2:
+            # Apply edge detection instead
+            edges = cv2.Canny(gray, 50, 150, apertureSize=3)
+            
+            # Apply Hough Line Transform
+            lines = cv2.HoughLines(edges, 1, np.pi/180, threshold=int(min(height, width)/3))
+            
+            if lines is not None:
+                h_lines = []
+                v_lines = []
+                
+                for rho, theta in lines[:, 0]:
+                    # Separate horizontal and vertical lines
+                    if abs(theta) < 0.3 or abs(theta - np.pi) < 0.3:  # Vertical lines
+                        v_lines.append(abs(rho))
+                    elif abs(theta - np.pi/2) < 0.3:  # Horizontal lines
+                        h_lines.append(abs(rho))
+                
+                # Sort and remove duplicates
+                h_lines = sorted(h_lines)
+                v_lines = sorted(v_lines)
+                
+                def remove_close_lines(lines, threshold=10):
+                    if not lines:
+                        return []
+                    filtered = [lines[0]]
+                    for line in lines[1:]:
+                        if line - filtered[-1] > threshold:
+                            filtered.append(line)
+                    return filtered
+                
+                h_boundaries = remove_close_lines(h_lines)
+                v_boundaries = remove_close_lines(v_lines)
+        
+        # Draw boundaries on debug image
+        for y in h_boundaries:
+            cv2.line(debug_image, (0, y), (width, y), (0, 255, 0), 2)
+        for x in v_boundaries:
+            cv2.line(debug_image, (x, 0), (x, height), (0, 0, 255), 2)
+        
+        cv2.imwrite("detected_boundaries.jpg", debug_image)
+        cv2.imwrite("binary_boundaries.jpg", binary)
+        
+        # Number of cells = number of boundaries - 1 (for a grid with n cells, there are n+1 lines)
+        rows = len(h_boundaries) - 1
+        cols = len(v_boundaries) - 1
+        
+        # Ensure we have at least 2x2 grid
+        rows = max(2, rows)
+        cols = max(2, cols)
+        
+        # Additional check: try to detect cell intersections
+        intersections = []
+        for y in h_boundaries:
+            for x in v_boundaries:
+                # Verify if this is really an intersection (black point)
+                region = binary[max(0, y-5):min(height, y+5), max(0, x-5):min(width, x+5)]
+                if np.mean(region) > 127:  # If the region is mostly white, it's an intersection
+                    intersections.append((x, y))
+                    cv2.circle(debug_image, (x, y), 5, (255, 0, 0), -1)
+        
+        cv2.imwrite("intersections.jpg", debug_image)
+        
+        # If we have enough intersections, the grid size is more reliable
+        if len(intersections) >= 4:
+            # Count unique x and y coordinates
+            x_coords = sorted(list(set([pt[0] for pt in intersections])))
+            y_coords = sorted(list(set([pt[1] for pt in intersections])))
+            
+            # Merge close coordinates
+            def merge_close_coords(coords, threshold=10):
+                if not coords:
+                    return []
+                merged = [coords[0]]
+                for coord in coords[1:]:
+                    if coord - merged[-1] > threshold:
+                        merged.append(coord)
+                return merged
+            
+            x_merged = merge_close_coords(x_coords)
+            y_merged = merge_close_coords(y_coords)
+            
+            # Grid size based on intersections
+            cols = len(x_merged) - 1
+            rows = len(y_merged) - 1
+            
+            # Ensure we have at least 2x2 grid
+            rows = max(2, rows)
+            cols = max(2, cols)
+        
+        # Sanity check: grid should be roughly square and have at least 2x2 cells
+        if (rows < 2 or cols < 2) or abs(rows - cols) > 3:
+            print(f"Warning: Detected grid size {rows}x{cols} seems unusual, using default 9x9")
+            print(f"Number of horizontal boundaries: {len(h_boundaries)}, vertical boundaries: {len(v_boundaries)}")
+            return 9, 9
+        
+        print(f"Detected grid size: {rows}x{cols}")
+        print(f"Found {len(h_boundaries)} horizontal boundaries and {len(v_boundaries)} vertical boundaries")
+        return rows, cols
+
+    def detect_grid_cells_with_boundaries(image, grid_bounds):
+        """Detect individual cells within the grid using boundary detection"""
+        # First detect the grid size
+        num_rows, num_cols = ImageProcessor.detect_grid_size_from_boundaries(image, grid_bounds)
+        
+        x1, y1, x2, y2 = grid_bounds
+        grid_width = x2 - x1
+        grid_height = y2 - y1
+        
         # Calculate cell dimensions
-        cell_width = (x2 - x1) / num_cols
-        cell_height = (y2 - y1) / num_rows
+        cell_width = grid_width / num_cols
+        cell_height = grid_height / num_rows
         
         # Create cell coordinates
         cells = []
@@ -240,6 +264,51 @@ class ImageProcessor:
             cells.append(cell_row)
         
         return cells
+
+    def process_screenshot_with_boundaries(image_path=None):
+        """Process a screenshot with boundary-based grid detection"""
+        image = ImageProcessor.capture_screenshot()
+        
+        # Detect grid
+        grid_bounds = ImageProcessor.detect_grid(image)
+        print(f"Detected grid at: {grid_bounds}")
+        
+        # Detect cells with boundary-based grid size detection
+        cells = ImageProcessor.detect_grid_cells_with_boundaries(image, grid_bounds)
+        
+        # Get grid dimensions
+        board_size = len(cells)
+        cols = len(cells[0]) if cells else 0
+        
+        # Identify color regions
+        color_regions = ImageProcessor.identify_color_regions(image, cells)
+        
+        # For now, always start with an empty board
+        board_state = [[0 for _ in range(cols)] for _ in range(board_size)]
+        
+        # Debug: Draw grid on image
+        debug_image = image.copy()
+        for row in range(board_size):
+            for col in range(len(cells[row])):
+                x1, y1, x2, y2 = cells[row][col]
+                cv2.rectangle(debug_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+                # Put region number in center of cell
+                cv2.putText(debug_image, str(color_regions[row][col]), 
+                            (x1 + 20, y1 + 30), cv2.FONT_HERSHEY_SIMPLEX, 
+                            0.6, (0, 0, 255), 2)
+        
+        # Save debug image
+        cv2.imwrite("detected_grid_with_boundaries.jpg", debug_image)
+        print(f"Detected grid size: {board_size}x{cols}")
+        
+        return board_size, color_regions, board_state
+
+
+        
+    @staticmethod
+    def detect_grid_cells(image, grid_bounds):
+        """Detect individual cells within the grid with boundary detection"""
+        return ImageProcessor.detect_grid_cells_with_boundaries(image, grid_bounds)
     
     @staticmethod
     def identify_color_regions(image, cells):
@@ -282,48 +351,8 @@ class ImageProcessor:
     
     @staticmethod
     def process_screenshot(image_path=None):
-        """Process a screenshot of the LinkedIn Queens game with dynamic grid size"""
-        if image_path is None:
-            # Capture screenshot
-            image = ImageProcessor.capture_screenshot()
-        else:
-            # Load from file
-            image = cv2.imread(image_path)
-            if image is None:
-                raise ValueError(f"Could not load image from {image_path}")
-        
-        # Detect grid
-        grid_bounds = ImageProcessor.detect_grid(image)
-        print(f"Detected grid at: {grid_bounds}")
-        
-        # Detect cells with dynamic grid size
-        cells = ImageProcessor.detect_grid_cells(image, grid_bounds)
-        
-        # Get grid dimensions
-        board_size = len(cells)
-        
-        # Identify color regions
-        color_regions = ImageProcessor.identify_color_regions(image, cells)
-        
-        # For now, always start with an empty board
-        board_state = [[0 for _ in range(len(cells[0]))] for _ in range(board_size)]
-        
-        # Debug: Draw grid on image
-        debug_image = image.copy()
-        for row in range(board_size):
-            for col in range(len(cells[row])):
-                x1, y1, x2, y2 = cells[row][col]
-                cv2.rectangle(debug_image, (x1, y1), (x2, y2), (0, 255, 0), 2)
-                # Put region number in center of cell
-                cv2.putText(debug_image, str(color_regions[row][col]), 
-                            (x1 + 20, y1 + 30), cv2.FONT_HERSHEY_SIMPLEX, 
-                            0.6, (0, 0, 255), 2)
-        
-        # Save debug image
-        cv2.imwrite("detected_grid.jpg", debug_image)
-        print("Debug image saved as 'detected_grid.jpg'")
-        
-        return board_size, color_regions, board_state
+        """Process a screenshot with improved grid detection"""
+        return ImageProcessor.process_screenshot_with_boundaries()
 
     @staticmethod
     def get_cell_coordinates(grid_bounds, row, col, board_size=None):
